@@ -1,6 +1,6 @@
 {
   "name": "@bitbonsai/pi-memory",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Small persistent memory extension for Pi.",
   "keywords": [
     "pi-package",

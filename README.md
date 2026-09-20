@@ -4,21 +4,17 @@
   <br>
   <br>
   <h1>@bitbonsai/pi-memory</h1>
-  <p>Small persistent memory for <a href="https://pi.dev">Pi</a>.</p>
+  <p>Pi forgets the rules you taught it yesterday.</p>
   <p><a href="https://www.npmjs.com/package/@bitbonsai/pi-memory"><img src="https://img.shields.io/npm/v/%40bitbonsai/pi-memory?label=npm" alt="npm version"></a> <a href="https://github.com/bitbonsai/pi-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/bitbonsai/pi-memory" alt="MIT license"></a> <img src="https://img.shields.io/badge/node-%3E%3D24-339933?logo=nodedotjs&logoColor=white" alt="Node 24 or newer"> <img src="https://img.shields.io/badge/bun-1.4%2B-black?logo=bun" alt="Bun 1.4 or newer"></p>
   <br>
   <br>
 </div>
 
-Stores facts and corrections in local SQLite. Injects one bounded memory block at session start. Can consolidate a completed session with a configured model.
+This keeps corrections, preferences, and project facts in one local SQLite database. New sessions receive one memory block, capped at 8KB. After a session, an optional cheap model extracts anything worth keeping.
 
-No embeddings. No vector store. No file or session index. No watchers or background agents.
+## Why a fork
 
-Derived from [`@samfp/pi-memory` v1.3.5](https://github.com/samfoy/pi-memory), under its MIT license.
-
-## Why derive it
-
-The original project grew toward semantic search and a broader context stack. This package keeps local SQLite facts and lessons, one capped injection, and optional consolidation. No semantic search.
+I wanted the useful part of [@samfp/pi-memory](https://github.com/samfoy/pi-memory) v1.3.5 without its newer direction: semantic search and a larger context stack. This fork stays with SQLite, keyword lookup, one bounded injection, and optional consolidation. No embeddings, vector store, file index, session index, watchers, or agent loops.
 
 ## Install
 
@@ -28,21 +24,21 @@ pi install npm:@bitbonsai/pi-memory
 
 ## Use
 
-Pi can search, add, remove, and list memory through these tools:
-
 | Tool | What it does |
 |------|--------------|
-| `memory_search` | Search stored facts and lessons |
-| `memory_remember` | Store a fact or lesson |
+| `memory_search` | Find stored facts and lessons |
+| `memory_remember` | Save a fact or lesson |
 | `memory_forget` | Remove a fact or lesson |
 | `memory_lessons` | List lessons |
 | `memory_stats` | Show memory counts |
 
-`/memory-consolidate` extracts memory from current session on demand.
+`/memory-consolidate` extracts memory from current session when asked.
 
 ## Configure
 
-The database is `~/.pi/memory/memory.db`. To use a cheap model for session-end consolidation:
+Database: `~/.pi/memory/memory.db`.
+
+This uses Pi's default model unless you set one for consolidation:
 
 ```json
 {
@@ -52,9 +48,9 @@ The database is `~/.pi/memory/memory.db`. To use a cheap model for session-end c
 }
 ```
 
-Without `consolidationModel`, it uses Pi's normal default model. Consolidation runs after sessions with at least three user messages and sends that session's conversation to configured provider.
+Consolidation starts after three user messages. It sends that session's conversation to configured provider.
 
-Project-local database:
+Keep one project's memory separate:
 
 ```json
 {
@@ -66,7 +62,7 @@ Project-local database:
 
 ## Develop
 
-Node 24+ or Bun 1.4+ required.
+Node 24+ or Bun 1.4+.
 
 ```sh
 npm test
