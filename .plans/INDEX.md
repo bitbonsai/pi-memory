@@ -8,11 +8,13 @@
 - LLM consolidation at session end with configurable model
 - Five tools: search, remember, forget, lessons, stats
 - `/memory-consolidate` manual command
-- Bootstrap script for seeding from session-search index
 - Per-project DB path via `.pi/settings.json`
+
+## Active
+
+- [ ] [Keep memory small; compose with wrap](2026-09-20-minimal-memory-and-wrap.md)
 
 ## Planned
 
-- [ ] Publish to npm as `@bitbonsai/pi-memory`
+- [ ] Publish `0.1.1` to npm
 - [ ] Verify Pi package gallery discoverability
-- [ ] Confirm FTS5 availability in Node 24 built-in sqlite
