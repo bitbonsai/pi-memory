@@ -5,7 +5,7 @@
   <br>
   <h1>@bitbonsai/pi-memory</h1>
   <p>Small persistent memory for <a href="https://pi.dev">Pi</a>.</p>
-  <p><a href="https://www.npmjs.com/package/@bitbonsai/pi-memory"><img src="https://img.shields.io/npm/v/%40bitbonsai/pi-memory?label=npm" alt="npm version"></a> <a href="https://github.com/bitbonsai/pi-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/bitbonsai/pi-memory" alt="MIT license"></a> <img src="https://img.shields.io/badge/node-%3E%3D24-339933?logo=nodedotjs&logoColor=white" alt="Node 24 or newer"></p>
+  <p><a href="https://www.npmjs.com/package/@bitbonsai/pi-memory"><img src="https://img.shields.io/npm/v/%40bitbonsai/pi-memory?label=npm" alt="npm version"></a> <a href="https://github.com/bitbonsai/pi-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/bitbonsai/pi-memory" alt="MIT license"></a> <img src="https://img.shields.io/badge/node-%3E%3D24-339933?logo=nodedotjs&logoColor=white" alt="Node 24 or newer"> <img src="https://img.shields.io/badge/bun-1.4%2B-black?logo=bun" alt="Bun 1.4 or newer"></p>
   <br>
   <br>
 </div>
@@ -15,6 +15,10 @@ Stores facts and corrections in local SQLite. Injects one bounded memory block a
 No embeddings. No vector store. No file or session index. No watchers or background agents.
 
 Derived from [`@samfp/pi-memory` v1.3.5](https://github.com/samfoy/pi-memory), under its MIT license.
+
+## Why derive it
+
+The original project grew toward semantic search and a broader context stack. This package keeps local SQLite facts and lessons, one capped injection, and optional consolidation. No semantic search.
 
 ## Install
 
@@ -62,11 +66,15 @@ Project-local database:
 
 ## Develop
 
-Node 24+ required.
+Node 24+ or Bun 1.4+ required.
 
 ```sh
 npm test
 npm run build
+
+# or
+bun test
+bun run build
 ```
 
 ## License

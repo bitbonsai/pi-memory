@@ -8,8 +8,8 @@ Forked from [`@samfp/pi-memory` v1.3.5](https://github.com/samfoy/pi-memory) und
 
 ## Hard constraints
 
-- **No scope creep.** No embeddings, no vector database, no file index, no background agents, no watchers. This is a small extension, not a platform.
-- **Node 24 required.** Uses `node:sqlite` (built-in `DatabaseSync`). Will not run on Node < 24.
+- **No scope creep.** No semantic search, embeddings, vector database, file index, background agents, or watchers. This is a small extension, not a platform.
+- **Node 24+ or Bun 1.4+ required.** Uses `node:sqlite` (built-in `DatabaseSync`).
 - **Peer deps are external.** `@earendil-works/pi-coding-agent` and `@sinclair/typebox` are peer deps; the build externalizes them. Never bundle them.
 - **Consolidation is best-effort.** It calls `pi -p ... --print --no-extensions --no-tools --no-session` as a subprocess. A 45s exec timeout plus a 60s hard backstop kill it. Failures are swallowed silently.
 
@@ -18,7 +18,8 @@ Forked from [`@samfp/pi-memory` v1.3.5](https://github.com/samfoy/pi-memory) und
 ```sh
 npm run build          # esbuild bundle → dist/index.js
 npm run dev            # watch mode
-npm test               # node --test --import tsx src/**/*.test.ts
+npm test               # Node test runner
+bun test               # Bun test runner
 ```
 
 Tests use Node's built-in test runner with tsx loader. No vitest, no jest.
