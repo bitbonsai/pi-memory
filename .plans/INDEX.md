@@ -9,12 +9,12 @@
 - Five tools: search, remember, forget, lessons, stats
 - `/memory-consolidate` manual command
 - Per-project DB path via `.pi/settings.json`
-
-## Active
-
-- [ ] [Keep memory small; compose with wrap](2026-09-20-minimal-memory-and-wrap.md)
+- v0.2.0: removed FTS and per-turn injection; added one-shot untrusted-data block and `/memory-context`
+- v0.2.0: Wrap can store direct user preferences through `memory_remember` when installed
 
 ## Planned
 
-- [ ] Publish `0.1.1` to npm
+- [ ] Publish `0.2.0` to npm
 - [ ] Verify Pi package gallery discoverability
+
+Archived plans: `.archive/`
