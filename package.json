@@ -29,8 +29,7 @@
   "scripts": {
     "test": "node --test --import tsx src/**/*.test.ts",
     "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --sourcemap --packages=external --external:@mariozechner/pi-coding-agent --external:@earendil-works/pi-coding-agent --external:@sinclair/typebox",
-    "dev": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --sourcemap --watch --packages=external --external:@mariozechner/pi-coding-agent --external:@earendil-works/pi-coding-agent --external:@sinclair/typebox",
-    "prepare": "npm run build"
+    "dev": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --sourcemap --watch --packages=external --external:@mariozechner/pi-coding-agent --external:@earendil-works/pi-coding-agent --external:@sinclair/typebox"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
