@@ -1,10 +1,18 @@
-# @bitbonsai/pi-memory
+<div align="center">
+  <br>
+  <img width="137" height="137" src="icon.svg" alt="Pi memory">
+  <br>
+  <br>
+  <h1>@bitbonsai/pi-memory</h1>
+  <p>Small persistent memory for <a href="https://pi.dev">Pi</a>.</p>
+  <p><a href="https://www.npmjs.com/package/@bitbonsai/pi-memory"><img src="https://img.shields.io/npm/v/%40bitbonsai/pi-memory?label=npm" alt="npm version"></a> <a href="https://github.com/bitbonsai/pi-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/bitbonsai/pi-memory" alt="MIT license"></a> <img src="https://img.shields.io/badge/node-%3E%3D24-339933?logo=nodedotjs&logoColor=white" alt="Node 24 or newer"></p>
+  <br>
+  <br>
+</div>
 
-Small persistent memory extension for [Pi](https://pi.dev).
+Stores facts and corrections in local SQLite. Injects one bounded memory block at session start. Can consolidate a completed session with a configured model.
 
-Stores facts and corrections in local SQLite. At session start, injects one bounded memory block. At session end, it can use a cheap model to extract durable facts.
-
-No embeddings. No vector database. No file index. No background agents.
+No embeddings. No vector store. No file or session index. No watchers or background agents.
 
 Derived from [`@samfp/pi-memory` v1.3.5](https://github.com/samfoy/pi-memory), under its MIT license.
 
@@ -14,9 +22,23 @@ Derived from [`@samfp/pi-memory` v1.3.5](https://github.com/samfoy/pi-memory), u
 pi install npm:@bitbonsai/pi-memory
 ```
 
-## Configure consolidation
+## Use
 
-Without a configured model, consolidation uses Pi's normal default model. Set a cheap model explicitly when wanted:
+Pi can search, add, remove, and list memory through these tools:
+
+| Tool | What it does |
+|------|--------------|
+| `memory_search` | Search stored facts and lessons |
+| `memory_remember` | Store a fact or lesson |
+| `memory_forget` | Remove a fact or lesson |
+| `memory_lessons` | List lessons |
+| `memory_stats` | Show memory counts |
+
+`/memory-consolidate` extracts memory from current session on demand.
+
+## Configure
+
+The database is `~/.pi/memory/memory.db`. To use a cheap model for session-end consolidation:
 
 ```json
 {
@@ -26,23 +48,9 @@ Without a configured model, consolidation uses Pi's normal default model. Set a 
 }
 ```
 
-Consolidation runs after sessions with at least three user messages. It sends that session's conversation to the configured provider.
+Without `consolidationModel`, it uses Pi's normal default model. Consolidation runs after sessions with at least three user messages and sends that session's conversation to configured provider.
 
-## Tools
-
-- `memory_search`
-- `memory_remember`
-- `memory_forget`
-- `memory_lessons`
-- `memory_stats`
-
-`/memory-consolidate` extracts memory from the current session on demand.
-
-## Storage
-
-Default database: `~/.pi/memory/memory.db`.
-
-Project-local storage:
+Project-local database:
 
 ```json
 {
@@ -52,6 +60,21 @@ Project-local storage:
 }
 ```
 
+## Develop
+
+Node 24+ required.
+
+```sh
+npm test
+npm run build
+```
+
 ## License
 
 MIT.
+
+## Credits
+
+Derived from [@samfp/pi-memory](https://github.com/samfoy/pi-memory) v1.3.5, under MIT license.
+
+Memory icon by [Adrien Coquet](https://thenounproject.com/) from [Noun Project](https://thenounproject.com/).

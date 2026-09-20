@@ -1,2 +1,4 @@
 node_modules/
 *.tgz
+.plans/next.md
+.plans/next.prev.md
