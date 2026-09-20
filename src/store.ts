@@ -45,8 +45,6 @@ export interface MemoryEvent {
 
 export class MemoryStore {
   private db: DatabaseSync;
-  private writeLock: Promise<void> = Promise.resolve();
-  private hasFTS5: boolean = false;
 
   constructor(dbPath: string) {
     const dir = dirname(dbPath);
@@ -103,47 +101,17 @@ export class MemoryStore {
       // Column already exists — ignore
     }
 
-    // FTS5 virtual tables for semantic + lesson search (optional — node:sqlite may lack FTS5)
-    try {
-      this.db.exec(`
-        CREATE VIRTUAL TABLE IF NOT EXISTS semantic_fts USING fts5(key, value, content='semantic', content_rowid='rowid');
-
-        CREATE TRIGGER IF NOT EXISTS semantic_ai AFTER INSERT ON semantic BEGIN
-          INSERT INTO semantic_fts(rowid, key, value) VALUES (new.rowid, new.key, new.value);
-        END;
-        CREATE TRIGGER IF NOT EXISTS semantic_ad AFTER DELETE ON semantic BEGIN
-          INSERT INTO semantic_fts(semantic_fts, rowid, key, value) VALUES('delete', old.rowid, old.key, old.value);
-        END;
-        CREATE TRIGGER IF NOT EXISTS semantic_au AFTER UPDATE ON semantic BEGIN
-          INSERT INTO semantic_fts(semantic_fts, rowid, key, value) VALUES('delete', old.rowid, old.key, old.value);
-          INSERT INTO semantic_fts(rowid, key, value) VALUES (new.rowid, new.key, new.value);
-        END;
-      `);
-
-      this.db.exec(`
-        CREATE VIRTUAL TABLE IF NOT EXISTS lessons_fts USING fts5(rule, category, content='lessons', content_rowid='rowid');
-
-        CREATE TRIGGER IF NOT EXISTS lessons_fts_ai AFTER INSERT ON lessons BEGIN
-          INSERT INTO lessons_fts(rowid, rule, category) VALUES (new.rowid, new.rule, new.category);
-        END;
-        CREATE TRIGGER IF NOT EXISTS lessons_fts_ad AFTER DELETE ON lessons BEGIN
-          INSERT INTO lessons_fts(lessons_fts, rowid, rule, category) VALUES('delete', old.rowid, old.rule, old.category);
-        END;
-        CREATE TRIGGER IF NOT EXISTS lessons_fts_au AFTER UPDATE ON lessons BEGIN
-          INSERT INTO lessons_fts(lessons_fts, rowid, rule, category) VALUES('delete', old.rowid, old.rule, old.category);
-          INSERT INTO lessons_fts(rowid, rule, category) VALUES (new.rowid, new.rule, new.category);
-        END;
-      `);
-
-      // Rebuild FTS indexes from existing data (idempotent)
-      this.db.exec(`INSERT INTO semantic_fts(semantic_fts) VALUES('rebuild')`);
-      this.db.exec(`INSERT INTO lessons_fts(lessons_fts) VALUES('rebuild')`);
-      this.hasFTS5 = true;
-    } catch {
-      // FTS5 not available (node:sqlite compiled without SQLITE_ENABLE_FTS5).
-      // Search will use substring fallback — fine for typical memory store sizes.
-      this.hasFTS5 = false;
-    }
+    this.db.exec(`
+      DROP TRIGGER IF EXISTS semantic_ai;
+      DROP TRIGGER IF EXISTS semantic_ad;
+      DROP TRIGGER IF EXISTS semantic_au;
+      DROP TRIGGER IF EXISTS lessons_fts_ai;
+      DROP TRIGGER IF EXISTS lessons_fts_ad;
+      DROP TRIGGER IF EXISTS lessons_fts_au;
+      DROP TABLE IF EXISTS semantic_fts;
+      DROP TABLE IF EXISTS lessons_fts;
+      PRAGMA user_version = 1;
+    `);
   }
 
   /**
@@ -212,48 +180,13 @@ export class MemoryStore {
   searchSemantic(query: string, limit: number = 10): SemanticEntry[] {
     const terms = query.trim().split(/\s+/).filter(Boolean);
     if (terms.length === 0) return [];
-
-    if (!this.hasFTS5) return this._searchSemanticFallback(query, limit);
-
-    // Build FTS5 query — quote each term for safety
-    const ftsQuery = terms.map(t => `"${t.replace(/"/g, '""')}"`).join(" OR ");
-
-    try {
-      const rows = this.db.prepare(`
-        SELECT s.key, s.value, s.confidence, s.source, s.created_at, s.updated_at, s.last_accessed
-        FROM semantic s
-        JOIN semantic_fts fts ON s.rowid = fts.rowid
-        WHERE semantic_fts MATCH ?
-        ORDER BY bm25(semantic_fts)
-        LIMIT ?
-      `).all(ftsQuery, limit) as unknown as SemanticEntry[];
-
-      // FTS5 tokenizes on whitespace/punctuation, so CJK text without spaces
-      // won't match substrings (e.g. searching "小米" won't hit "查询小米").
-      // Fall back to LIKE-based substring search when FTS returns nothing.
-      if (rows.length > 0) return rows;
-      return this._searchSemanticFallback(query, limit);
-    } catch {
-      // FTS query failed — fall back to substring matching
-      return this._searchSemanticFallback(query, limit);
-    }
-  }
-
-  private _searchSemanticFallback(query: string, limit: number): SemanticEntry[] {
-    const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-    if (terms.length === 0) return [];
-
-    const all = this.db.prepare("SELECT * FROM semantic").all() as unknown as SemanticEntry[];
-    return all
-      .map(entry => {
-        const text = `${entry.key} ${entry.value}`.toLowerCase();
-        const matches = terms.filter(t => text.includes(t)).length;
-        return { entry, score: matches / terms.length };
-      })
-      .filter(({ score }) => score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
-      .map(({ entry }) => entry);
+    const where = terms.map(() => "(key LIKE ? ESCAPE '\\' OR value LIKE ? ESCAPE '\\')").join(" OR ");
+    const values = terms.flatMap((term) => {
+      const pattern = `%${escapeLike(term.toLowerCase())}%`;
+      return [pattern, pattern];
+    });
+    return this.db.prepare(`SELECT * FROM semantic WHERE ${where} ORDER BY updated_at DESC LIMIT ?`)
+      .all(...values, clampLimit(limit)) as unknown as SemanticEntry[];
   }
 
   touchAccessed(keys: string[]): void {
@@ -333,53 +266,17 @@ export class MemoryStore {
     return rows.map(r => ({ ...r, negative: !!r.negative, project: r.project ?? null }));
   }
 
-  /**
-   * Search lessons by relevance to a query. Uses FTS5 when available,
-   * falls back to substring matching. Returns lessons ranked by relevance.
-   */
   searchLessons(query: string, limit: number = 20): LessonEntry[] {
     const terms = query.trim().split(/\s+/).filter(Boolean);
     if (terms.length === 0) return [];
-
-    if (!this.hasFTS5) return this._searchLessonsFallback(query, limit);
-
-    const ftsQuery = terms.map(t => `"${t.replace(/"/g, '""')}"`).join(" OR ");
-
-    try {
-      const rows = this.db.prepare(`
-        SELECT l.id, l.rule, l.category, l.source, l.negative, l.created_at, l.project
-        FROM lessons l
-        JOIN lessons_fts fts ON l.rowid = fts.rowid
-        WHERE lessons_fts MATCH ? AND l.is_deleted = 0
-        ORDER BY bm25(lessons_fts)
-        LIMIT ?
-      `).all(ftsQuery, limit) as any[];
-
-      const mapped = rows.map(r => ({ ...r, negative: !!r.negative, project: r.project ?? null }));
-
-      // Same CJK fallback as searchSemantic — FTS won't match CJK substrings.
-      if (mapped.length > 0) return mapped;
-      return this._searchLessonsFallback(query, limit);
-    } catch {
-      return this._searchLessonsFallback(query, limit);
-    }
-  }
-
-  private _searchLessonsFallback(query: string, limit: number): LessonEntry[] {
-    const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-    if (terms.length === 0) return [];
-
-    const all = this.db.prepare("SELECT * FROM lessons WHERE is_deleted = 0").all() as any[];
-    return all
-      .map(entry => {
-        const text = `${entry.rule} ${entry.category}`.toLowerCase();
-        const matches = terms.filter(t => text.includes(t)).length;
-        return { entry: { ...entry, negative: !!entry.negative, project: entry.project ?? null } as LessonEntry, score: matches / terms.length };
-      })
-      .filter(({ score }) => score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
-      .map(({ entry }) => entry);
+    const where = terms.map(() => "(rule LIKE ? ESCAPE '\\' OR category LIKE ? ESCAPE '\\')").join(" OR ");
+    const values = terms.flatMap((term) => {
+      const pattern = `%${escapeLike(term.toLowerCase())}%`;
+      return [pattern, pattern];
+    });
+    const rows = this.db.prepare(`SELECT * FROM lessons WHERE is_deleted = 0 AND (${where}) ORDER BY created_at DESC LIMIT ?`)
+      .all(...values, clampLimit(limit)) as any[];
+    return rows.map((row) => ({ ...row, negative: !!row.negative, project: row.project ?? null }));
   }
 
   deleteLesson(id: string): boolean {
@@ -427,6 +324,14 @@ export class MemoryStore {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────
+
+function clampLimit(limit: number): number {
+  return Math.max(1, Math.min(20, Number.isFinite(limit) ? Math.floor(limit) : 20));
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
 
 function jaccard(a: string, b: string): number {
   const setA = new Set(a.toLowerCase().split(/\s+/).filter(Boolean));

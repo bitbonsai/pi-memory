@@ -3,9 +3,38 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { MemoryStore } from "./store.js";
 
 describe("MemoryStore", () => {
+  it("removes legacy FTS objects without touching rows", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-memory-legacy-"));
+    const file = join(dir, "legacy.db");
+    const original = new MemoryStore(file);
+    original.setSemantic("pref.keep", "yes", 0.9, "user");
+    original.close();
+
+    const db = new DatabaseSync(file);
+    db.exec(`
+      CREATE VIRTUAL TABLE semantic_fts USING fts5(key, value);
+      CREATE TRIGGER semantic_ai AFTER INSERT ON semantic BEGIN
+        INSERT INTO semantic_fts(key, value) VALUES (new.key, new.value);
+      END;
+    `);
+    db.close();
+
+    const migrated = new MemoryStore(file);
+    assert.equal(migrated.getSemantic("pref.keep")?.value, "yes");
+    migrated.setSemantic("pref.after_migration", "works", 0.9, "user");
+    assert.equal(migrated.getSemantic("pref.after_migration")?.value, "works");
+    migrated.close();
+
+    const check = new DatabaseSync(file, { readOnly: true });
+    assert.equal(check.prepare("SELECT name FROM sqlite_master WHERE name = 'semantic_fts'").get(), undefined);
+    assert.equal(check.prepare("SELECT name FROM sqlite_master WHERE name = 'semantic_ai'").get(), undefined);
+    check.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
   let store: MemoryStore;
   let tmpDir: string;
 
@@ -56,13 +85,13 @@ describe("MemoryStore", () => {
       assert.ok(results.some(r => r.key === "tool.sed"));
     });
 
-    it("FTS5 search: basic query", () => {
+    it("searches by substring", () => {
       store.setSemantic("pref.music", "jazz and classical", 0.9, "user");
       const results = store.searchSemantic("jazz");
       assert.ok(results.some(r => r.key === "pref.music"));
     });
 
-    it("FTS5 search: multi-term OR", () => {
+    it("matches any search term", () => {
       store.setSemantic("pref.food", "sushi is favorite", 0.9, "user");
       store.setSemantic("pref.drink", "coffee every morning", 0.9, "user");
       const results = store.searchSemantic("sushi coffee");
@@ -71,15 +100,18 @@ describe("MemoryStore", () => {
       assert.ok(results.some(r => r.key === "pref.drink"));
     });
 
-    it("FTS5 search: no results for nonsense", () => {
+    it("returns no results for nonsense", () => {
       const results = store.searchSemantic("xyzzyplugh");
       assert.equal(results.length, 0);
     });
 
-    it("FTS5 search: special characters handled safely", () => {
-      // Should not throw — special chars are quoted
-      const results = store.searchSemantic('hello "world" (test)');
-      assert.ok(Array.isArray(results));
+    it("treats LIKE wildcards literally and caps results", () => {
+      store.setSemantic("pref.percent", "100% focus", 0.9, "user");
+      store.setSemantic("pref.underscore", "snake_case", 0.9, "user");
+      for (let i = 0; i < 25; i++) store.setSemantic(`pref.cap${i}`, "cap", 0.9, "user");
+      assert.ok(store.searchSemantic("100%").some((entry) => entry.key === "pref.percent"));
+      assert.ok(store.searchSemantic("snake_case").some((entry) => entry.key === "pref.underscore"));
+      assert.equal(store.searchSemantic("cap", 100).length, 20);
     });
 
     it("touchAccessed updates last_accessed", () => {

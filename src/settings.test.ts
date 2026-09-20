@@ -82,34 +82,10 @@ describe("readSettingsConfig", () => {
     assert.equal(cfg.consolidationModel, "claude-sonnet-4-20250514");
   });
 
-  it("still reads lessonInjection alongside consolidationModel", () => {
-    writeProjectSettings({
-      memory: {
-        lessonInjection: "selective",
-        consolidationModel: "openai/gpt-4.1-mini",
-      },
-    });
+  it("ignores removed injection settings", () => {
+    writeProjectSettings({ memory: { perTurnInjection: true, lessonInjection: "selective" } });
     const cfg = readSettingsConfig(tmpProject);
-    assert.equal(cfg.lessonInjection, "selective");
-    assert.equal(cfg.consolidationModel, "openai/gpt-4.1-mini");
-  });
-
-  it("reads perTurnInjection = true", () => {
-    writeProjectSettings({ memory: { perTurnInjection: true } });
-    const cfg = readSettingsConfig(tmpProject);
-    assert.equal(cfg.perTurnInjection, true);
-  });
-
-  it("reads perTurnInjection = false", () => {
-    writeProjectSettings({ memory: { perTurnInjection: false } });
-    const cfg = readSettingsConfig(tmpProject);
-    assert.equal(cfg.perTurnInjection, false);
-  });
-
-  it("ignores non-boolean perTurnInjection", () => {
-    writeProjectSettings({ memory: { perTurnInjection: "yes" } });
-    const cfg = readSettingsConfig(tmpProject);
-    assert.equal(cfg.perTurnInjection, undefined);
+    assert.equal(cfg.consolidationModel, globalConfig.consolidationModel);
   });
 
   it("returns undefined consolidationModel when no settings.json is present", () => {
@@ -134,15 +110,9 @@ describe("readSettingsConfig", () => {
     assert.ok(cfg === cfg); // smoke test: function returned without throwing.
   });
 
-  it("keeps global model when local model is invalid alongside a valid lesson setting", () => {
-    writeProjectSettings({
-      memory: {
-        lessonInjection: "selective",
-        consolidationModel: 123,
-      },
-    });
+  it("keeps global model when local model is invalid", () => {
+    writeProjectSettings({ memory: { consolidationModel: 123 } });
     const cfg = readSettingsConfig(tmpProject);
-    assert.equal(cfg.lessonInjection, "selective");
     assert.equal(cfg.consolidationModel, globalConfig.consolidationModel);
   });
 });

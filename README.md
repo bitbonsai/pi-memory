@@ -32,13 +32,13 @@ pi install npm:@bitbonsai/pi-memory
 | `memory_lessons` | List lessons |
 | `memory_stats` | Show memory counts |
 
-`/memory-consolidate` extracts memory from current session when asked.
+`/memory-consolidate` extracts memory from current session when asked. `/memory-context` shows exact local memory block this session receives.
 
 ## Configure
 
 Database: `~/.pi/memory/memory.db`.
 
-This uses Pi's default model unless you set one for consolidation:
+Automatic consolidation runs only when you set a model:
 
 ```json
 {
@@ -48,7 +48,7 @@ This uses Pi's default model unless you set one for consolidation:
 }
 ```
 
-Consolidation starts after three user messages. It sends that session's conversation to configured provider.
+With a configured model, consolidation starts after three user messages. It sends user messages from that session to configured provider. Manual `/memory-consolidate` uses Pi's current default if no model is configured.
 
 Keep one project's memory separate:
 

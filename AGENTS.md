@@ -8,7 +8,7 @@ Forked from [`@samfp/pi-memory` v1.3.5](https://github.com/samfoy/pi-memory) und
 
 ## Hard constraints
 
-- **No scope creep.** No semantic search, embeddings, vector database, file index, background agents, or watchers. This is a small extension, not a platform.
+- **No scope creep.** No FTS, embeddings, vector database, file index, background agents, or watchers. This is a small extension, not a platform.
 - **Node 24+ or Bun 1.4+ required.** Uses `node:sqlite` (built-in `DatabaseSync`).
 - **Peer deps are external.** `@earendil-works/pi-coding-agent` and `@sinclair/typebox` are peer deps; the build externalizes them. Never bundle them.
 - **Consolidation is best-effort.** It calls `pi -p ... --print --no-extensions --no-tools --no-session` as a subprocess. A 45s exec timeout plus a 60s hard backstop kill it. Failures are swallowed silently.
@@ -40,14 +40,15 @@ Default DB: `~/.pi/memory/memory.db`. Override per-project via `.pi/settings.jso
 { "pi-memory": { "localPath": ".pi/memory" } }
 ```
 
-Settings also accept `memory.consolidationModel`, `memory.lessonInjection` (`"all"` | `"selective"`), and `memory.perTurnInjection` (boolean).
+Settings accept `memory.consolidationModel`. Automatic consolidation runs only when set.
 
 ## Known traps
 
 - `DatabaseSync` is synchronous and single-connection. WAL mode + busy_timeout=5000 handles concurrent reads but writes serialize through `writeLock`.
-- `perTurnInjection: true` mutates `systemPrompt` every turn, breaking provider prefix caches. Users opt in knowing the tradeoff.
+- Existing databases lose only legacy FTS tables and triggers on open. Facts and lessons remain.
 - Consolidation calls `pi` as a subprocess. If pi is not on PATH or the configured model string is invalid, consolidation silently fails.
 - `stripQuotes()` defensively unwraps double-quoted args from local model runners that over-encode JSON.
+- `/memory-context` prints local memory to terminal. It is user-command only and strips control characters.
 - The extension seeds `pendingUserMessages` from session history on resume so `/memory-consolidate` works mid-session.
 
 ## Links

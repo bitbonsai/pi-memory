@@ -23,7 +23,7 @@ import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { readFileSync } from "node:fs";
 import { MemoryStore } from "./store.js";
-import { buildContextBlock, projectSlug, type InjectorConfig } from "./injector.js";
+import { buildContextBlock, projectSlug, sanitizeMemoryText, type InjectorConfig } from "./injector.js";
 
 type ToolResult = AgentToolResult<unknown>;
 function ok(text: string): ToolResult { return { content: [{ type: "text", text }], details: {} }; }
@@ -98,7 +98,7 @@ function warnUnknownKeys(block: unknown, blockName: string, knownKeys: readonly 
   );
 }
 
-const PI_MEMORY_KNOWN_KEYS = ["localPath", "lessonInjection", "consolidationModel", "perTurnInjection"] as const;
+const PI_MEMORY_KNOWN_KEYS = ["localPath", "consolidationModel"] as const;
 const PI_TOTAL_RECALL_KNOWN_KEYS = ["localPath"] as const;
 
 export function resolveDbPath(cwd: string): string {
@@ -140,12 +140,6 @@ function mergeMemorySettings(config: InjectorConfig, memorySettings: unknown): v
   if (!memorySettings || typeof memorySettings !== "object") return;
   const m = memorySettings as Record<string, unknown>;
 
-  if (m.lessonInjection === "all" || m.lessonInjection === "selective") {
-    config.lessonInjection = m.lessonInjection;
-  }
-  if (typeof m.perTurnInjection === "boolean") {
-    config.perTurnInjection = m.perTurnInjection;
-  }
   if (typeof m.consolidationModel === "string" && m.consolidationModel.trim()) {
     config.consolidationModel = m.consolidationModel.trim();
   }
@@ -159,8 +153,6 @@ function mergeMemorySettings(config: InjectorConfig, memorySettings: unknown): v
  * Example settings.json:
  * {
  *   "memory": {
- *     "perTurnInjection": true,
- *     "lessonInjection": "selective",
  *     "consolidationModel": "openai/gpt-4.1-mini"
  *   }
  * }
@@ -197,7 +189,6 @@ export function readSettingsConfig(cwd?: string): InjectorConfig {
 export default function (pi: ExtensionAPI) {
   let store: MemoryStore | null = null;
   let pendingUserMessages: string[] = [];
-  let pendingAssistantMessages: string[] = [];
   let sessionCwd: string = "";
   let sessionId: string | undefined;
   let cachedCtx: any = null;
@@ -222,7 +213,6 @@ export default function (pi: ExtensionAPI) {
       // /memory-consolidate works even when resuming a session (the
       // historical messages never fire agent_end).  See #5.
       pendingUserMessages = [];
-      pendingAssistantMessages = [];
       try {
         const branch = ctx.sessionManager.getBranch();
         for (const entry of branch) {
@@ -232,9 +222,6 @@ export default function (pi: ExtensionAPI) {
           if (msg.role === "user") {
             const text = extractText(msg.content);
             if (text) pendingUserMessages.push(text);
-          } else if (msg.role === "assistant") {
-            const text = extractText(msg.content);
-            if (text) pendingAssistantMessages.push(text);
           }
         }
       } catch {
@@ -252,84 +239,26 @@ export default function (pi: ExtensionAPI) {
         }, 5000);
       }
 
-      // Inject stored memory as a one-shot custom message BEFORE any user
-      // message arrives. Matches pi-knowledge-search's pattern.
-      //
-      // Skipped when `perTurnInjection: true` — in that mode the
-      // before_agent_start handler below takes over with per-turn semantic
-      // matching via systemPrompt mutation.
-      //
-      // Historical note: v1.0.x mutated event.systemPrompt in before_agent_start.
-      // That broke provider prefix caches on every turn boundary (any drift in
-      // the system block re-writes the conversation suffix at cacheWrite rates).
-      //
-      // v1.1.x returned { message } from before_agent_start. That was worse: the
-      // custom message landed AFTER the user's question in history, so the model
-      // responded to the memory block instead of the user.
-      //
-      // v1.2.0 injects once at session_start using fallback mode (all facts +
-      // lessons, 8KB cap). Correct ordering, stable cache, simpler model.
-      //
-      // v1.3.x adds `perTurnInjection: true` as an opt-in to restore v1.0.x
-      // per-turn selective behavior (mutates systemPrompt, breaks cache on
-      // every turn boundary — users opt in knowing the tradeoff).
-      if (!injectorConfig.perTurnInjection) {
-        try {
-          const alreadyInjected = ctx.sessionManager
-            .getEntries()
-            .some(
-              (e: SessionEntry) =>
-                e.type === "custom_message" && e.customType === "pi-memory-context",
-            );
-          if (!alreadyInjected) {
-            const { text, stats: injStats } = buildContextBlock(
-              store,
-              sessionCwd,
-              undefined, // no prompt → fallback: dump all relevant memory
-              injectorConfig,
-            );
-            if (text) {
-              pi.sendMessage({
-                customType: "pi-memory-context",
-                content: text,
-                display: false,
-                details: injStats,
-              });
-            }
-          }
-        } catch {
-          // Injection is nice-to-have; never break startup over it.
+      try {
+        const alreadyInjected = ctx.sessionManager.getEntries().some(
+          (e: SessionEntry) => e.type === "custom_message" && e.customType === "pi-memory-context",
+        );
+        const { text, stats: injStats } = buildContextBlock(store, sessionCwd);
+        if (text && !alreadyInjected) {
+          pi.sendMessage({
+            customType: "pi-memory-context",
+            content: text,
+            display: false,
+            details: injStats,
+          });
         }
+      } catch {
+        // Memory must not block session startup.
       }
     } catch (err: any) {
       ctx.ui.notify(`pi-memory: failed to open store: ${err.message}`, "warning");
     }
   });
-
-  // ----------------------------------------------------------------
-  // Opt-in per-turn selective injection (v1.3.0).
-  //
-  // When `perTurnInjection: true` is set, run a semantic search against the
-  // current user prompt and append matching memory to event.systemPrompt.
-  // MUST use systemPrompt (not { message }) — returning { message } puts the
-  // content AFTER the user message and causes the model to respond to the
-  // injected memory instead of the user. See v1.1.x postmortem.
-  //
-  // This breaks provider prefix caches on every turn boundary — an accepted
-  // cost for users who want per-query relevance from large memory stores.
-  // ----------------------------------------------------------------
-  pi.on("before_agent_start", async (event, ctx) => {
-    if (!store) return;
-    if (!injectorConfig.perTurnInjection) return;
-
-    const { text } = buildContextBlock(store, ctx.cwd, event.prompt, injectorConfig);
-    if (!text) return;
-
-    return {
-      systemPrompt: `${event.systemPrompt}\n\n${text}`,
-    };
-  });
-
 
   pi.on("agent_end", async (event, _ctx) => {
     // Collect messages for consolidation at shutdown
@@ -340,12 +269,6 @@ export default function (pi: ExtensionAPI) {
           pendingUserMessages.push(text);
           if (pendingUserMessages.length > 60) pendingUserMessages.shift();
         }
-      } else if (msg.role === "assistant" && "content" in msg) {
-        const text = extractText(msg.content);
-        if (text) {
-          pendingAssistantMessages.push(text);
-          if (pendingAssistantMessages.length > 60) pendingAssistantMessages.shift();
-        }
       }
     }
   });
@@ -354,7 +277,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_before_switch", async (_event, ctx) => {
     if (!store) return;
 
-    if (pendingUserMessages.length >= 3) {
+    if (injectorConfig.consolidationModel && pendingUserMessages.length >= 3) {
       ctx.ui.setStatus("pi-memory", "🧠 Consolidating memory...");
       try {
         await consolidateSession();
@@ -370,19 +293,16 @@ export default function (pi: ExtensionAPI) {
 
     // Reset for the next session
     pendingUserMessages = [];
-    pendingAssistantMessages = [];
   });
 
   pi.on("session_shutdown", async () => {
     if (!store) return;
 
-    // Immediate visual feedback — user sees this as soon as C-c C-c fires
-    if (cachedCtx) {
+    if (cachedCtx && injectorConfig.consolidationModel && pendingUserMessages.length >= 3) {
       cachedCtx.ui.setStatus("pi-memory", "🧠 Consolidating memory...");
     }
 
-    // Consolidate if we have enough conversation
-    if (pendingUserMessages.length >= 3) {
+    if (injectorConfig.consolidationModel && pendingUserMessages.length >= 3) {
       try {
         await consolidateSession();
       } catch {
@@ -401,7 +321,7 @@ export default function (pi: ExtensionAPI) {
 
     const input: ConsolidationInput = {
       userMessages: pendingUserMessages,
-      assistantMessages: pendingAssistantMessages,
+      assistantMessages: [],
       cwd: sessionCwd,
       sessionId,
     };
@@ -465,13 +385,13 @@ export default function (pi: ExtensionAPI) {
     async execute(_id, params, _signal, _update, _ctx) {
       if (!store) return ok("Memory store not initialized");
 
-      const results = store.searchSemantic(params.query, params.limit ?? 10);
+      const results = store.searchSemantic(params.query, Math.min(params.limit ?? 10, 20));
       if (results.length === 0) {
         return ok("No matching memories found.");
       }
 
       const text = results.map(r =>
-        `${r.key}: ${r.value} (confidence: ${r.confidence}, source: ${r.source})`
+        `${r.key}: ${sanitizeMemoryText(r.value)} (confidence: ${r.confidence}, source: ${r.source})`
       ).join("\n");
 
       return ok(text);
@@ -578,13 +498,13 @@ export default function (pi: ExtensionAPI) {
     async execute(_id, params, _signal, _update, _ctx) {
       if (!store) return ok("Memory store not initialized");
 
-      const lessons = store.listLessons(params.category, params.limit ?? 50);
+      const lessons = store.listLessons(params.category, Math.min(params.limit ?? 20, 20));
       if (lessons.length === 0) {
         return ok("No lessons learned yet.");
       }
 
       const text = lessons.map(l =>
-        `${l.negative ? "❌" : "✅"} [${l.category}] ${l.rule} (id: ${l.id.slice(0, 8)})`
+        `${l.negative ? "❌" : "✅"} [${l.category}] ${sanitizeMemoryText(l.rule)} (id: ${l.id.slice(0, 8)})`
       ).join("\n");
 
       return ok(text);
@@ -606,6 +526,15 @@ export default function (pi: ExtensionAPI) {
   });
 
   // ─── Commands ──────────────────────────────────────────────────
+
+  pi.registerCommand("memory-context", {
+    description: "Show local memory injected into this session",
+    async handler(_args, ctx) {
+      if (!store) return ctx.ui.notify("Memory store not initialized", "warning");
+      const { text } = buildContextBlock(store, ctx.cwd);
+      await ctx.ui.editor("Local memory, not sent to a provider", text || "No memory for this session.");
+    },
+  });
 
   pi.registerCommand("memory-consolidate", {
     description: "Manually trigger memory consolidation for the current session",
